@@ -1,0 +1,113 @@
+# Multi-Model Agent Configuration
+# API keys are read from environment variables, not this file.
+
+# --- Model Selection ---
+models:
+  claude:
+    provider: anthropic
+    model: claude-sonnet-4-6
+    max_tokens: 8192
+    temperature: 0.2
+  gpt:
+    provider: openai
+    model: gpt-4.1
+    max_tokens: 8192
+    temperature: 0.3
+
+# --- Scanner Configuration ---
+scanner:
+  enabled: true
+  max_file_size_kb: 200
+  batch_max_tokens: 80000
+  ignore_patterns:
+    - "*.min.js"
+    - "*.min.css"
+    - "*.map"
+    - "*.lock"
+    - "*.png"
+    - "*.jpg"
+    - "*.gif"
+    - "*.ico"
+    - "*.woff*"
+    - "*.ttf"
+    - "*.eot"
+    - "node_modules/"
+    - ".git/"
+    - "__pycache__/"
+    - "*.pyc"
+    - "vendor/"
+    - "dist/"
+    - "build/"
+    - ".next/"
+  severity_levels:
+    - critical
+    - high
+    - medium
+    - low
+  scan_categories:
+    - injection       # SQL, NoSQL, command injection
+    - xss             # Cross-site scripting
+    - auth            # Broken authentication/authorization
+    - crypto          # Weak cryptography
+    - secrets         # Hardcoded secrets/keys
+    - deserialization # Insecure deserialization
+    - ssrf            # Server-side request forgery
+    - path_traversal  # Directory traversal
+    - config          # Security misconfiguration
+    - dependency      # Known vulnerable dependencies
+
+# --- Reviewer Configuration ---
+reviewer:
+  enabled: true
+  max_diff_size_kb: 500
+  review_categories:
+    - bugs           # Potential bugs
+    - performance    # Performance issues
+    - security       # Security concerns
+    - style          # Code style
+    - docs           # Documentation gaps
+    - architecture   # Architecture/design issues
+    - testing        # Missing tests
+    - optimization   # Optimization opportunities
+
+# --- Test Runner Configuration ---
+test_runner:
+  enabled: true
+  timeout_seconds: 600
+  use_claude_analysis: true
+  frameworks:
+    python: ["pytest", "python -m pytest", "tox"]
+    javascript: ["npm test", "jest", "vitest", "mocha"]
+    typescript: ["npm test", "jest", "vitest"]
+    go: ["go test ./..."]
+    rust: ["cargo test"]
+    java: ["./gradlew test", "mvn test"]
+
+# --- Notification Configuration ---
+notifications:
+  enabled: true
+  default_language: en
+  supported_languages: [en, zh, ja, ko, es, pt, fr, de, ru, ar]
+  platforms:
+    slack:
+      enabled: false
+      webhook_url_env: SLACK_WEBHOOK_URL
+    teams:
+      enabled: false
+      webhook_url_env: TEAMS_WEBHOOK_URL
+    feishu:
+      enabled: false
+      webhook_url_env: FEISHU_WEBHOOK_URL
+    dingtalk:
+      enabled: false
+      webhook_url_env: DINGTALK_WEBHOOK_URL
+    generic:
+      enabled: false
+      webhook_url_env: GENERIC_WEBHOOK_URL
+
+# --- Output Configuration ---
+output:
+  report_dir: ./reports
+  format: [json, markdown, html]
+  include_snippets: true
+  snippet_context_lines: 5

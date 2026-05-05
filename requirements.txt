@@ -1,0 +1,7 @@
+anthropic>=0.18.0
+openai>=1.0.0
+pyyaml>=5.1
+httpx>=0.20.0
+rich>=10.0.0
+click>=7.0
+jinja2>=2.11

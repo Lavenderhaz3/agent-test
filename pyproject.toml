@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "multi-model-agent"
+version = "1.0.0"
+description = "Multi-model collaborative agent for automated code review and documentation generation"
+requires-python = ">=3.9"
+license = {text = "MIT"}
+authors = [{name = "Multi Model Agent Team"}]
+dependencies = [
+    "anthropic>=0.18.0",
+    "openai>=1.0.0",
+    "pyyaml>=5.1",
+    "httpx>=0.20.0",
+    "rich>=10.0.0",
+    "click>=7.0",
+    "jinja2>=2.11",
+]
+
+[project.scripts]
+multi-model-agent = "multi_model_agent.cli:main"
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0", "pytest-asyncio>=0.24", "ruff>=0.8"]
