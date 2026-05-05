@@ -1,8 +1,8 @@
 """Main orchestrator — coordinates scanning, reviewing, testing, and notifications.
 
-Runs Claude scanner and GPT reviewer in parallel (where possible),
-executes tests sequentially, aggregates results, and delivers to
-configured collaboration platforms.
+主编排器：协调 Claude 扫描 + GPT 评审 + 测试执行 + 报告聚合 + 通知推送的完整工作流。
+第一阶段（扫描 + 评审）并行执行以节省时间，第二阶段（测试）串行执行，
+最后聚合结果、保存报告、推送通知。
 """
 
 from __future__ import annotations
@@ -28,7 +28,7 @@ console = Console()
 
 
 def _run_scan(config: Config, repo: str) -> ScanResult | None:
-    """Run the Claude vulnerability scanner."""
+    """执行 Claude 安全漏洞扫描（在线程池中运行）。"""
     if not config.scanner_enabled:
         console.print("[yellow]Scanner is disabled in config. Skipping.[/]")
         return None
@@ -43,13 +43,14 @@ def _run_scan(config: Config, repo: str) -> ScanResult | None:
 
 
 def _run_review(config: Config, diff_or_pr: str, pr_description: str = "") -> ReviewResult | None:
-    """Run the GPT PR reviewer."""
+    """执行 GPT PR 评审（在线程池中运行）。"""
     if not config.reviewer_enabled:
         console.print("[yellow]Reviewer is disabled in config. Skipping.[/]")
         return None
     console.print("[bold]Reviewing changes...[/]")
     reviewer = GPTReviewer(config)
 
+    # 支持传入 diff 文件路径或直接文本
     diff_path = Path(diff_or_pr)
     if diff_path.exists() and diff_path.is_file():
         diff_content = diff_path.read_text(encoding="utf-8")
@@ -69,7 +70,7 @@ def _run_review(config: Config, diff_or_pr: str, pr_description: str = "") -> Re
 
 
 def _run_tests(config: Config, repo: str, command: str = "") -> TestReport | None:
-    """Run tests."""
+    """执行测试（串行运行，可能调用 Claude Code CLI 分析失败）。"""
     if not config.test_runner_enabled:
         console.print("[yellow]Test runner is disabled in config. Skipping.[/]")
         return None
@@ -83,7 +84,7 @@ def _run_tests(config: Config, repo: str, command: str = "") -> TestReport | Non
 
 
 def _print_results(scan: ScanResult | None, review: ReviewResult | None, tests: TestReport | None) -> None:
-    """Print a summary table to the console."""
+    """在终端打印工作流结果汇总表（使用 Rich 表格）。"""
     console.print("")
     console.print(Panel.fit("[bold]Results Summary[/]", border_style="blue"))
 
@@ -92,6 +93,7 @@ def _print_results(scan: ScanResult | None, review: ReviewResult | None, tests: 
     table.add_column("Status", style="green")
     table.add_column("Details")
 
+    # 安全扫描结果行
     if scan:
         s = scan.summary
         total = s.get("total", 0)
@@ -106,6 +108,7 @@ def _print_results(scan: ScanResult | None, review: ReviewResult | None, tests: 
     else:
         table.add_row("Security Scan", "⏭️ Skipped", "")
 
+    # PR 评审结果行
     if review:
         table.add_row(
             "PR Review",
@@ -115,6 +118,7 @@ def _print_results(scan: ScanResult | None, review: ReviewResult | None, tests: 
     else:
         table.add_row("PR Review", "⏭️ Skipped", "")
 
+    # 测试结果行
     if tests:
         failed = tests.total_failed
         table.add_row(
@@ -129,7 +133,14 @@ def _print_results(scan: ScanResult | None, review: ReviewResult | None, tests: 
 
 
 class Orchestrator:
-    """Coordinates the full multi-model agent workflow."""
+    """工作流编排器：将扫描、评审、测试、聚合、通知串联为完整流水线。
+
+    执行顺序：
+      第一阶段（并行）：Claude 漏洞扫描 + GPT PR 评审
+      第二阶段（串行）：测试执行（可能调用 Claude Code CLI）
+      第三阶段：结果聚合 + 报告保存
+      第四阶段：多平台通知推送
+    """
 
     def __init__(self, config: Config | None = None) -> None:
         self.config = config or load_config()
@@ -146,10 +157,7 @@ class Orchestrator:
         notify_enabled: bool = True,
         lang: str = "",
     ) -> AggregatedReport:
-        """Execute the full workflow.
-
-        Scanner and reviewer run in parallel; tests run sequentially.
-        """
+        """执行完整工作流并返回聚合报告。"""
         start = time.time()
         repo_abs = str(Path(repo).resolve())
 
@@ -162,7 +170,7 @@ class Orchestrator:
         scan_result: ScanResult | None = None
         review_result: ReviewResult | None = None
 
-        # Phase 1: Run scanner and reviewer in parallel
+        # ===== 第一阶段：并行执行扫描 + 评审 =====
         with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
             futures: dict[str, concurrent.futures.Future] = {}
 
@@ -172,6 +180,7 @@ class Orchestrator:
             if not skip_review and diff:
                 futures["review"] = executor.submit(_run_review, self.config, diff, pr_description)
 
+            # 收集并行任务结果
             for name, future in futures.items():
                 try:
                     if name == "scan":
@@ -183,12 +192,12 @@ class Orchestrator:
                 except Exception as e:
                     console.print(f"[red]{name} failed: {e}[/]")
 
-        # Phase 2: Run tests (sequential — may use Claude Code)
+        # ===== 第二阶段：串行执行测试 =====
         test_result: TestReport | None = None
         if not skip_tests:
             test_result = _run_tests(self.config, repo_abs, test_cmd)
 
-        # Phase 3: Aggregate results
+        # ===== 第三阶段：聚合结果并保存报告 =====
         console.print("[bold]Aggregating results...[/]")
         report = aggregate(
             scan=scan_result,
@@ -198,12 +207,11 @@ class Orchestrator:
             lang=lang,
         )
 
-        # Save reports
         saved = save_report(report, self.config.output_dir, self.config.output_formats)
         for p in saved:
             console.print(f"  Report saved: [dim]{p}[/]")
 
-        # Phase 4: Notify
+        # ===== 第四阶段：推送通知到团队协作工具 =====
         notify_results: dict[str, bool] = {}
         if notify_enabled:
             console.print("[bold]Sending notifications...[/]")
@@ -213,7 +221,7 @@ class Orchestrator:
                 icon = "✅" if ok else "❌"
                 console.print(f"  {icon} {platform}")
 
-        # Print summary
+        # 打印终端汇总表
         _print_results(scan_result, review_result, test_result)
 
         elapsed = time.time() - start

@@ -1,7 +1,7 @@
 """Test runner with framework auto-detection and Claude Code integration.
 
-Detects the language/framework, executes tests, parses results,
-and optionally uses Claude Code (OpenClaw) for failure analysis.
+测试运行器：自动检测语言和测试框架，执行测试，解析输出，可选调用 Claude Code（OpenClaw）分析失败原因。
+支持 pytest、jest、vitest、go test、cargo test、gradle/mvn test 等主流框架。
 """
 
 from __future__ import annotations
@@ -20,16 +20,18 @@ from .config import Config
 
 @dataclass
 class TestCase:
-    name: str
-    status: str  # passed, failed, skipped, error
-    duration_ms: float = 0.0
-    message: str = ""
-    file: str = ""
-    line: int = 0
+    """单条测试用例结果。"""
+    name: str                        # 用例名称
+    status: str                      # 结果状态：passed/failed/skipped/error
+    duration_ms: float = 0.0         # 执行耗时（毫秒）
+    message: str = ""                # 失败/错误信息
+    file: str = ""                   # 所在文件
+    line: int = 0                    # 所在行号
 
 
 @dataclass
 class TestSuite:
+    """一个测试套件（包含多个用例）。"""
     name: str
     tests: list[TestCase] = field(default_factory=list)
     passed: int = 0
@@ -41,29 +43,33 @@ class TestSuite:
 
 @dataclass
 class TestReport:
+    """完整测试报告。"""
     suites: list[TestSuite] = field(default_factory=list)
     total_passed: int = 0
     total_failed: int = 0
     total_skipped: int = 0
     total_errors: int = 0
     total_duration_ms: float = 0.0
-    framework: str = "unknown"
-    raw_output: str = ""
-    claude_analysis: str = ""
-    errors: list[str] = field(default_factory=list)
+    framework: str = "unknown"       # 检测到的测试框架
+    raw_output: str = ""             # 原始测试输出
+    claude_analysis: str = ""        # Claude Code 失败分析结果
+    errors: list[str] = field(default_factory=list)  # 运行过程中的错误
 
     @property
     def total_tests(self) -> int:
+        """测试用例总数。"""
         return self.total_passed + self.total_failed + self.total_skipped + self.total_errors
 
     @property
     def pass_rate(self) -> float:
+        """通过率（百分比）。"""
         total = self.total_tests
         if total == 0:
             return 0.0
         return self.total_passed / total * 100
 
     def to_dict(self) -> dict[str, Any]:
+        """转为字典，用于 JSON 序列化。"""
         return {
             "suites": [
                 {**asdict(s), "tests": [asdict(t) for t in s.tests]}
@@ -82,6 +88,7 @@ class TestReport:
         }
 
     def to_markdown(self, strings: dict[str, str]) -> str:
+        """生成 Markdown 格式测试报告。"""
         lines = [strings["test_header"], ""]
         lines.append(
             strings["test_summary"].format(
@@ -95,6 +102,7 @@ class TestReport:
         lines.append(f"**Pass Rate:** {self.pass_rate:.1f}%  |  **Framework:** {self.framework}  |  **Duration:** {self.total_duration_ms / 1000:.1f}s")
         lines.append("")
 
+        # 展开每个套件中的失败用例
         for suite in self.suites:
             lines.append(f"### {suite.name} — {suite.passed}/{len(suite.tests)} passed")
             for test in suite.tests:
@@ -105,6 +113,7 @@ class TestReport:
                         lines.append(f"  `{test.file}:{test.line}`")
             lines.append("")
 
+        # 附加 Claude Code 的 AI 分析
         if self.claude_analysis:
             lines.append("### AI Analysis (Claude)")
             lines.append(self.claude_analysis)
@@ -114,8 +123,10 @@ class TestReport:
 
 
 def detect_framework(repo_path: Path) -> tuple[str, str]:
-    """Detect the language and test framework. Returns (language, command)."""
-    # Python
+    """检测项目的语言和测试框架。返回 (语言, 测试命令)。
+    按顺序检查：Python(pyproject/setup) → JS/TS(package.json) → Go → Rust → Java
+    """
+    # Python 项目检测：优先 pyproject.toml，其次 setup.py/setup.cfg
     if (repo_path / "pyproject.toml").exists() or (repo_path / "setup.py").exists() or (repo_path / "setup.cfg").exists():
         if (repo_path / "tox.ini").exists():
             return "python", "tox"
@@ -123,7 +134,7 @@ def detect_framework(repo_path: Path) -> tuple[str, str]:
     if (repo_path / "Pipfile").exists() or (repo_path / "requirements.txt").exists():
         return "python", "pytest"
 
-    # JavaScript/TypeScript
+    # JavaScript / TypeScript 项目检测：解析 package.json 中的 scripts 和依赖
     pkg_json = repo_path / "package.json"
     if pkg_json.exists():
         try:
@@ -141,15 +152,15 @@ def detect_framework(repo_path: Path) -> tuple[str, str]:
         except Exception:
             pass
 
-    # Go
+    # Go 项目检测
     if (repo_path / "go.mod").exists():
         return "go", "go test ./..."
 
-    # Rust
+    # Rust 项目检测
     if (repo_path / "Cargo.toml").exists():
         return "rust", "cargo test"
 
-    # Java
+    # Java 项目检测（Gradle 优先级高于 Maven）
     if list(repo_path.glob("*.gradle")) or (repo_path / "gradlew").exists():
         return "java", "./gradlew test"
     if (repo_path / "pom.xml").exists():
@@ -159,7 +170,7 @@ def detect_framework(repo_path: Path) -> tuple[str, str]:
 
 
 def _parse_test_output(output: str, framework: str) -> list[TestSuite]:
-    """Parse test output into structured suites based on framework."""
+    """根据框架类型将原始输出解析为结构化测试套件列表。"""
     suites: list[TestSuite] = []
 
     if framework == "pytest":
@@ -169,21 +180,21 @@ def _parse_test_output(output: str, framework: str) -> list[TestSuite]:
     elif framework == "go test ./...":
         suites = _parse_go_test(output)
     else:
-        suites = _parse_generic(output)
+        suites = _parse_generic(output)  # 未知框架用通用解析
 
     return suites
 
 
 def _parse_pytest(output: str) -> list[TestSuite]:
+    """解析 pytest 输出。匹配格式：
+    'test_file.py::test_name PASSED' 或 'FAILED test_file.py::test_name - message'
+    """
     tests: list[TestCase] = []
-    # pytest short summary line: PASSED / FAILED / SKIPPED / ERRORS
     for line in output.split("\n"):
-        # Match: "test_file.py::test_name PASSED"
         m = re.match(r"(\S+::\S+)\s+(PASSED|FAILED|SKIPPED|ERROR)", line)
         if m:
             name, status = m.group(1), m.group(2).lower()
             tests.append(TestCase(name=name, status=status))
-        # Match: "FAILED test_file.py::test_name - error message"
         m = re.match(r"FAILED\s+(\S+::\S+)\s*[-]\s*(.*)", line)
         if m:
             tests.append(TestCase(name=m.group(1), status="failed", message=m.group(2)))
@@ -195,16 +206,19 @@ def _parse_pytest(output: str) -> list[TestSuite]:
 
 
 def _parse_jest(output: str) -> list[TestSuite]:
+    """解析 Jest/Vitest 输出。匹配格式：
+    '  Suite Name' 作为套件头，'    ✓ test name (5ms)' 作为用例子项。
+    """
     suites: list[TestSuite] = []
     current_suite = None
     for line in output.split("\n"):
-        # Suite header: "  Suite Name"
+        # 套件名：以两个空格开头的大写字母开头行
         m = re.match(r"^\s{2}([A-Z].*?)(?:\s+\(.*\))?$", line)
         if m and "✓" not in line and "✗" not in line and "PASS" not in line and "FAIL" not in line:
             if current_suite:
                 suites.append(current_suite)
             current_suite = TestSuite(name=m.group(1).strip())
-        # Test line: "    ✓ test name (5ms)" or "    ✗ test name (5ms)"
+        # 用例子项：四个空格 + 图标 + 名称 + 耗时
         m = re.match(r"^\s{4}([✓✓✗✕])\s+(.+?)\s+\((\d+)\s*ms\)", line)
         if m and current_suite is not None:
             icon = m.group(1)
@@ -220,16 +234,19 @@ def _parse_jest(output: str) -> list[TestSuite]:
 
 
 def _parse_go_test(output: str) -> list[TestSuite]:
+    """解析 go test 输出。匹配格式：
+    '--- PASS: TestName (0.00s)' 和 'ok   package  0.123s'
+    """
     tests: list[TestCase] = []
     for line in output.split("\n"):
-        # "--- PASS: TestName (0.00s)" or "--- FAIL: TestName (0.00s)"
+        # 单个测试结果行
         m = re.match(r"---\s+(PASS|FAIL|SKIP):\s+(\S+)\s+\(([\d.]+)s\)", line)
         if m:
             status = m.group(1).lower()
             name = m.group(2)
             duration = float(m.group(3)) * 1000
             tests.append(TestCase(name=name, status=status, duration_ms=duration))
-        # "ok   package  0.123s" or "FAIL  package  0.123s"
+        # 包级别汇总行
         m = re.match(r"(ok|FAIL)\s+(\S+)\s+([\d.]+)s", line)
         if m:
             suite_name = m.group(2)
@@ -248,7 +265,7 @@ def _parse_go_test(output: str) -> list[TestSuite]:
 
 
 def _parse_generic(output: str) -> list[TestSuite]:
-    """Best-effort parsing for unknown frameworks."""
+    """通用解析器：对未知框架做最大努力的 PASS/FAIL 计数。"""
     passed = len(re.findall(r"(?i)\b(PASS|PASSED|ok|✓)\b", output))
     failed = len(re.findall(r"(?i)\b(FAIL|FAILED|FAILURE|✗)\b", output))
     if passed or failed:
@@ -260,13 +277,13 @@ def _parse_generic(output: str) -> list[TestSuite]:
 
 
 class TestRunner:
-    """Runs tests with auto-detection and Claude analysis."""
+    """测试运行器：自动检测框架，执行测试，解析结果，可选 AI 失败分析。"""
 
     def __init__(self, config: Config) -> None:
         self.config = config
 
     def run(self, repo_path: str | Path, command: str = "") -> TestReport:
-        """Run tests in a repository and return a structured report."""
+        """在仓库中运行测试，返回结构化报告。"""
         import time
         start_time = time.time()
 
@@ -276,6 +293,7 @@ class TestRunner:
             report.total_duration_ms = (time.time() - start_time) * 1000
             return report
 
+        # 第一步：检测语言和测试框架
         language, detected_cmd = detect_framework(repo)
         cmd = command or detected_cmd
 
@@ -287,7 +305,10 @@ class TestRunner:
             report.total_duration_ms = (time.time() - start_time) * 1000
             return report
 
+        # 第二步：执行测试
         output, exit_code = self._execute(cmd, repo)
+
+        # 第三步：解析输出
         suites = _parse_test_output(output, language)
 
         total_passed = sum(s.passed for s in suites)
@@ -295,7 +316,7 @@ class TestRunner:
         total_skipped = sum(s.skipped for s in suites)
         total_errors = sum(s.errors for s in suites)
 
-        # If parsing failed but we have output, do generic parse
+        # 解析失败时使用通用解析兜底
         if not suites and output.strip():
             suites = _parse_generic(output)
             total_passed = sum(s.passed for s in suites)
@@ -313,7 +334,7 @@ class TestRunner:
             raw_output=output,
         )
 
-        # Use Claude Code for failure analysis if enabled
+        # 第四步：有失败时使用 Claude Code CLI 分析根因
         if self.config.test_use_claude and total_failed > 0 and output.strip():
             report.claude_analysis = self._analyze_with_claude(output, repo)
 
@@ -321,6 +342,7 @@ class TestRunner:
         return report
 
     def _execute(self, command: str, cwd: Path) -> tuple[str, int]:
+        """通过子进程执行测试命令，捕获 stdout/stderr。"""
         try:
             proc = subprocess.run(
                 command,
@@ -338,8 +360,11 @@ class TestRunner:
             return f"Failed to execute tests: {e}", -1
 
     def _analyze_with_claude(self, test_output: str, repo_path: Path) -> str:
-        """Use Claude Code CLI to analyze test failures."""
+        """调用 Claude Code CLI（OpenClaw）分析测试失败原因。
+        将输出写入临时文件，由 Claude Code 读取并给出根因分析和修复建议。
+        """
         try:
+            # 写入临时文件避免命令行参数过长
             with tempfile.NamedTemporaryFile(
                 mode="w", suffix=".txt", delete=False, prefix="test_output_"
             ) as f:
@@ -354,6 +379,7 @@ class TestRunner:
                 f"Test output file: {tmp_path}"
             )
 
+            # 调用 Claude Code CLI（非交互模式）
             proc = subprocess.run(
                 ["claude", "--print", "--permission-mode", "bypassPermissions", analysis_prompt],
                 capture_output=True,
@@ -362,6 +388,7 @@ class TestRunner:
                 cwd=repo_path,
             )
 
+            # 清理临时文件
             try:
                 os.unlink(tmp_path)
             except OSError:
@@ -377,7 +404,7 @@ class TestRunner:
 
 
 def run_tests(repo_path: str, command: str = "", config: Config | None = None) -> TestReport:
-    """Convenience function to run tests with auto-detection."""
+    """便捷函数：一行调用完成测试自动执行与分析。"""
     if config is None:
         from .config import load_config
         config = load_config()

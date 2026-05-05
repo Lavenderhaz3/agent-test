@@ -1,7 +1,8 @@
 """GPT-based PR review and optimization suggestion generator.
 
-Accepts git diffs or PR metadata, sends to GPT for detailed review,
-and returns structured comments with optimization suggestions.
+基于 GPT API 的 PR 代码评审与优化建议生成器。
+接收 git diff 或 PR 描述，发送给 GPT 进行详细审查，返回结构化评审意见。
+覆盖：Bug 检测、性能优化、安全风险、架构问题、测试缺失、文档缺口等。
 """
 
 from __future__ import annotations
@@ -17,6 +18,7 @@ from openai import OpenAI
 
 from .config import Config
 
+# GPT 代码评审系统提示词：定义评审维度和输出 JSON 格式
 REVIEW_SYSTEM_PROMPT = """You are an expert code reviewer. Review the following diff/PR changes and provide detailed,
 actionable feedback. Focus on real issues, not style preferences.
 
@@ -60,25 +62,28 @@ Return ONLY valid JSON with this structure:
 
 @dataclass
 class ReviewComment:
-    file: str
-    line: int
-    category: str
-    severity: str
-    title: str
-    comment: str
-    suggestion: str = ""
+    """单条 PR 评审意见。"""
+    file: str           # 涉及文件路径
+    line: int           # 行号
+    category: str       # 类别：bugs/performance/security/architecture/testing/docs/optimization
+    severity: str       # 严重级别：critical/high/medium/low/suggestion
+    title: str          # 意见标题
+    comment: str        # 详细说明
+    suggestion: str = ""  # 具体修改建议
 
 
 @dataclass
 class ReviewResult:
+    """一次 PR 评审的完整结果。"""
     comments: list[ReviewComment] = field(default_factory=list)
-    summary: str = ""
-    risk_level: str = "low"
-    recommendations: list[str] = field(default_factory=list)
-    errors: list[str] = field(default_factory=list)
-    review_duration_ms: float = 0.0
+    summary: str = ""                          # 总体评价
+    risk_level: str = "low"                    # 风险等级：low/medium/high
+    recommendations: list[str] = field(default_factory=list)  # 整体建议
+    errors: list[str] = field(default_factory=list)           # 评审过程中的错误
+    review_duration_ms: float = 0.0            # 评审耗时（毫秒）
 
     def to_dict(self) -> dict[str, Any]:
+        """转为字典，用于 JSON 序列化。"""
         return {
             "comments": [asdict(c) for c in self.comments],
             "summary": self.summary,
@@ -90,9 +95,11 @@ class ReviewResult:
 
     @property
     def comment_count(self) -> int:
+        """评审意见总数。"""
         return len(self.comments)
 
     def to_markdown(self, strings: dict[str, str]) -> str:
+        """生成 Markdown 格式报告，按类别分组展示。"""
         lines = [strings["review_header"], ""]
         lines.append(
             strings["review_summary"].format(comments=str(len(self.comments)))
@@ -104,6 +111,7 @@ class ReviewResult:
         lines.append("")
 
         if self.comments:
+            # 按类别分组
             grouped: dict[str, list[ReviewComment]] = {}
             for c in self.comments:
                 grouped.setdefault(c.category, []).append(c)
@@ -127,18 +135,20 @@ class ReviewResult:
 
 
 class GPTReviewer:
-    """Generates PR reviews and optimization suggestions using GPT."""
+    """GPT 代码评审器：将 diff 发送给 GPT API 进行多维度代码审查。"""
 
     def __init__(self, config: Config) -> None:
         self.config = config
         api_key = os.getenv("OPENAI_API_KEY", "")
+        # API key 未设置时 client 为 None，调用时会返回友好错误
         self.client = OpenAI(api_key=api_key) if api_key else None
 
     def review_diff(self, diff: str, context: str = "") -> ReviewResult:
-        """Review a git diff and return structured feedback."""
+        """审查 git diff 并返回结构化反馈。"""
         import time
         start = time.time()
 
+        # 截断超出限制的 diff
         max_kb = self.config.reviewer_max_diff_kb
         if len(diff.encode()) > max_kb * 1024:
             diff = diff[: max_kb * 1024]
@@ -148,13 +158,14 @@ class GPTReviewer:
         return result
 
     def review_pr(self, pr_description: str, diff: str, context: str = "") -> ReviewResult:
-        """Review a full PR with description and diff."""
+        """审查完整 PR（含描述上下文和 diff）。"""
         combined = f"PR Description:\n{pr_description}\n\nDiff:\n{diff}"
         if context:
             combined = f"Context: {context}\n\n{combined}"
         return self.review_diff(combined)
 
     def _call_gpt(self, diff: str, context: str = "") -> ReviewResult:
+        """调用 GPT API 执行审查，解析返回的 JSON 结果。"""
         if not self.client:
             return ReviewResult(errors=["OPENAI_API_KEY not set; cannot call GPT API"])
 
@@ -174,6 +185,7 @@ class GPTReviewer:
             )
             text = response.choices[0].message.content or ""
 
+            # 解析 GPT 返回的 JSON
             data = self._parse_json(text)
             comments = [
                 ReviewComment(
@@ -198,9 +210,11 @@ class GPTReviewer:
 
     @staticmethod
     def _parse_json(text: str) -> dict[str, Any]:
+        """从 GPT 响应文本中提取 JSON 对象（处理 markdown 代码块包装）。"""
         text = text.strip()
         text = re.sub(r"^```(?:json)?\s*", "", text)
         text = re.sub(r"\s*```$", "", text)
+        # 定位 JSON 起止边界
         start = text.find("{")
         end = text.rfind("}")
         if start != -1 and end != -1:
@@ -212,7 +226,7 @@ class GPTReviewer:
 
 
 def review_diff(diff_path_or_text: str, config: Config | None = None) -> ReviewResult:
-    """Convenience function to review a diff file or text."""
+    """便捷函数：支持传入 diff 文本或 diff 文件路径。"""
     if config is None:
         from .config import load_config
         config = load_config()

@@ -1,12 +1,7 @@
 """CLI entry point for CodeSentinel.
 
-Commands:
-    run      Full workflow (scan + review + test + notify)
-    scan     Run vulnerability scanner only
-    review   Run PR review only
-    test     Run tests only
-    notify   Send an existing report to platforms
-    config   Show current configuration
+命令行入口：提供 run / scan / review / test / notify / show-config 六个子命令。
+基于 Click 框架构建，支持丰富的参数和选项。
 """
 
 from __future__ import annotations
@@ -36,16 +31,16 @@ def main() -> None:
 
 
 @main.command()
-@click.option("--repo", "-r", required=True, help="Path to the repository to analyze")
-@click.option("--diff", "-d", default="", help="Path to git diff file or diff text for PR review")
-@click.option("--pr-description", default="", help="PR description for context")
-@click.option("--test-cmd", default="", help="Custom test command (auto-detected if omitted)")
-@click.option("--skip-scan", is_flag=True, help="Skip vulnerability scanning")
-@click.option("--skip-review", is_flag=True, help="Skip PR review")
-@click.option("--skip-tests", is_flag=True, help="Skip test execution")
-@click.option("--no-notify", is_flag=True, help="Skip notifications")
-@click.option("--lang", default="", help="Report language (en, zh, ja, ko, etc.)")
-@click.option("--config", "config_path", default=None, help="Path to config YAML")
+@click.option("--repo", "-r", required=True, help="要分析的仓库路径")
+@click.option("--diff", "-d", default="", help="PR diff 文件路径或 diff 文本")
+@click.option("--pr-description", default="", help="PR 描述（提供上下文）")
+@click.option("--test-cmd", default="", help="自定义测试命令（省略则自动检测）")
+@click.option("--skip-scan", is_flag=True, help="跳过漏洞扫描")
+@click.option("--skip-review", is_flag=True, help="跳过 PR 评审")
+@click.option("--skip-tests", is_flag=True, help="跳过测试执行")
+@click.option("--no-notify", is_flag=True, help="跳过通知推送")
+@click.option("--lang", default="", help="报告语言 (en, zh, ja, ko 等)")
+@click.option("--config", "config_path", default=None, help="自定义 YAML 配置文件路径")
 def run(
     repo: str,
     diff: str,
@@ -58,7 +53,12 @@ def run(
     lang: str,
     config_path: str | None,
 ) -> None:
-    """Run the full multi-model workflow."""
+    """执行完整工作流：扫描 + 评审 + 测试 + 通知。
+
+    示例:
+      codesentinel run --repo ./myproject --diff pr.patch
+      codesentinel run --repo ./myproject --skip-review --lang zh --no-notify
+    """
     cfg = load_config(config_path)
 
     from .orchestrator import Orchestrator
@@ -78,14 +78,19 @@ def run(
 
 
 @main.command()
-@click.option("--repo", "-r", required=True, help="Path to the repository to scan")
-@click.option("--output", "-o", default="", help="Output file for JSON results")
-@click.option("--config", "config_path", default=None, help="Path to config YAML")
+@click.option("--repo", "-r", required=True, help="要扫描的仓库路径")
+@click.option("--output", "-o", default="", help="JSON 结果输出文件")
+@click.option("--config", "config_path", default=None, help="自定义 YAML 配置文件路径")
 def scan(repo: str, output: str, config_path: str | None) -> None:
-    """Run the Claude vulnerability scanner on a repository."""
+    """运行 Claude 漏洞扫描器（独立模式）。
+
+    示例:
+      codesentinel scan --repo ./myproject -o scan_results.json
+    """
     cfg = load_config(config_path)
     result = scan_repository(repo, cfg)
 
+    # 打印扫描汇总
     print(f"Files scanned: {result.files_scanned}")
     print(f"Issues found: {result.summary.get('total', 0)}")
     print(f"  Critical: {result.summary.get('critical', 0)}")
@@ -101,6 +106,7 @@ def scan(repo: str, output: str, config_path: str | None) -> None:
         Path(output).write_text(json.dumps(result.to_dict(), indent=2, ensure_ascii=False), encoding="utf-8")
         print(f"Saved to {output}")
     elif result.findings:
+        # 无输出文件时，在终端逐条打印漏洞详情
         for f in result.findings:
             print(f"\n  [{f.severity.upper()}] {f.title}")
             print(f"  File: {f.file}:{f.line}")
@@ -110,14 +116,20 @@ def scan(repo: str, output: str, config_path: str | None) -> None:
 
 
 @main.command()
-@click.option("--diff", "-d", required=True, help="Git diff text or path to diff file")
-@click.option("--pr-description", default="", help="PR description for context")
-@click.option("--output", "-o", default="", help="Output file for JSON results")
-@click.option("--config", "config_path", default=None, help="Path to config YAML")
+@click.option("--diff", "-d", required=True, help="Git diff 文本或 diff 文件路径")
+@click.option("--pr-description", default="", help="PR 描述（提供评审上下文）")
+@click.option("--output", "-o", default="", help="JSON 结果输出文件")
+@click.option("--config", "config_path", default=None, help="自定义 YAML 配置文件路径")
 def review(diff: str, pr_description: str, output: str, config_path: str | None) -> None:
-    """Run the GPT PR reviewer on a diff."""
+    """运行 GPT PR 评审器（独立模式）。
+
+    示例:
+      codesentinel review --diff pr.patch
+      codesentinel review --diff "the diff content..." --pr-description "Add login feature"
+    """
     cfg = load_config(config_path)
 
+    # 支持传入文件路径或原始 diff 文本
     diff_content = diff
     diff_path = Path(diff)
     if diff_path.exists() and diff_path.is_file():
@@ -146,12 +158,17 @@ def review(diff: str, pr_description: str, output: str, config_path: str | None)
 
 
 @main.command()
-@click.option("--repo", "-r", required=True, help="Path to the repository")
-@click.option("--command", "-c", default="", help="Custom test command (auto-detected if omitted)")
-@click.option("--output", "-o", default="", help="Output file for JSON results")
-@click.option("--config", "config_path", default=None, help="Path to config YAML")
+@click.option("--repo", "-r", required=True, help="仓库路径")
+@click.option("--command", "-c", default="", help="自定义测试命令（省略则自动检测框架）")
+@click.option("--output", "-o", default="", help="JSON 结果输出文件")
+@click.option("--config", "config_path", default=None, help="自定义 YAML 配置文件路径")
 def test(repo: str, command: str, output: str, config_path: str | None) -> None:
-    """Run tests with auto-detection and Claude analysis."""
+    """运行测试（自动检测框架 + Claude Code 失败分析）。
+
+    示例:
+      codesentinel test --repo ./myproject
+      codesentinel test --repo ./myproject -c "pytest -x"
+    """
     cfg = load_config(config_path)
     result = run_tests(repo, command, cfg)
 
@@ -177,10 +194,14 @@ def test(repo: str, command: str, output: str, config_path: str | None) -> None:
 
 
 @main.command()
-@click.option("--report", "-r", required=True, help="Path to JSON report file to send")
-@click.option("--config", "config_path", default=None, help="Path to config YAML")
+@click.option("--report", "-r", required=True, help="JSON 报告文件路径")
+@click.option("--config", "config_path", default=None, help="自定义 YAML 配置文件路径")
 def notify(report: str, config_path: str | None) -> None:
-    """Send an existing report JSON to configured notification platforms."""
+    """将已有的 JSON 报告推送到配置的通知平台。
+
+    示例:
+      codesentinel notify --report reports/report_20260506_120000.json
+    """
     cfg = load_config(config_path)
 
     report_data = json.loads(Path(report).read_text(encoding="utf-8"))
@@ -202,9 +223,9 @@ def notify(report: str, config_path: str | None) -> None:
 
 
 @main.command()
-@click.option("--config", "config_path", default=None, help="Path to config YAML")
+@click.option("--config", "config_path", default=None, help="自定义 YAML 配置文件路径")
 def show_config(config_path: str | None) -> None:
-    """Display the current configuration."""
+    """显示当前配置（YAML 内容 + 环境变量状态）。"""
     cfg = load_config(config_path)
     import yaml
     print(yaml.dump(cfg.raw, default_flow_style=False, allow_unicode=True))

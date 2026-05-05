@@ -1,7 +1,8 @@
 """Multi-platform notification delivery.
 
-Sends aggregated reports to Slack, Microsoft Teams, Feishu/Lark,
-DingTalk, and generic webhook endpoints with i18n-aware formatting.
+多平台通知推送模块：将聚合报告发送到 Slack、Microsoft Teams、飞书/Lark、钉钉等协作工具。
+每种平台使用其原生消息格式（Slack Block Kit、Teams Adaptive Card、飞书交互卡片、钉钉 Markdown）。
+支持根据报告语言自动切换文案。
 """
 
 from __future__ import annotations
@@ -18,7 +19,9 @@ from .i18n import get_strings
 
 
 def _build_slack_payload(report: AggregatedReport) -> dict[str, Any]:
-    """Build a Slack Block Kit message."""
+    """构建 Slack Block Kit 格式消息。
+    包含：标题、仓库信息、安全扫描摘要（前 5 个高危漏洞）、PR 评审摘要、测试结果。
+    """
     strings = get_strings(report.lang)
     blocks: list[dict] = [
         {
@@ -34,7 +37,7 @@ def _build_slack_payload(report: AggregatedReport) -> dict[str, Any]:
         {"type": "divider"},
     ]
 
-    # Security scan section
+    # ===== 安全扫描区块 =====
     if report.scan:
         summary = report.scan.get("summary", {})
         findings = report.scan.get("findings", [])
@@ -50,7 +53,7 @@ def _build_slack_payload(report: AggregatedReport) -> dict[str, Any]:
                 "type": "section",
                 "text": {"type": "mrkdwn", "text": f"*Security Scan:* {total} issues found\n{sev_text}"},
             })
-            # Top issues (max 5)
+            # 展示前 5 个最严重问题
             for f in findings[:5]:
                 blocks.append({
                     "type": "section",
@@ -69,7 +72,7 @@ def _build_slack_payload(report: AggregatedReport) -> dict[str, Any]:
             })
         blocks.append({"type": "divider"})
 
-    # PR review section
+    # ===== PR 评审区块 =====
     if report.review:
         comments = report.review.get("comments", [])
         blocks.append({
@@ -85,7 +88,7 @@ def _build_slack_payload(report: AggregatedReport) -> dict[str, Any]:
         })
         blocks.append({"type": "divider"})
 
-    # Test results section
+    # ===== 测试结果区块 =====
     if report.tests:
         passed = report.tests.get("total_passed", 0)
         failed = report.tests.get("total_failed", 0)
@@ -112,7 +115,9 @@ def _build_slack_payload(report: AggregatedReport) -> dict[str, Any]:
 
 
 def _build_teams_payload(report: AggregatedReport) -> dict[str, Any]:
-    """Build a Microsoft Teams Adaptive Card."""
+    """构建 Microsoft Teams Adaptive Card 格式消息。
+    使用 FactSet 展示关键指标。
+    """
     strings = get_strings(report.lang)
     facts: list[dict] = []
 
@@ -145,7 +150,9 @@ def _build_teams_payload(report: AggregatedReport) -> dict[str, Any]:
 
 
 def _build_feishu_payload(report: AggregatedReport) -> dict[str, Any]:
-    """Build a Feishu/Lark interactive card."""
+    """构建飞书 / Lark 交互式卡片消息。
+    使用 markdown 标签渲染各模块摘要。
+    """
     strings = get_strings(report.lang)
     elements: list[dict] = []
 
@@ -178,7 +185,9 @@ def _build_feishu_payload(report: AggregatedReport) -> dict[str, Any]:
 
 
 def _build_dingtalk_payload(report: AggregatedReport) -> dict[str, Any]:
-    """Build a DingTalk markdown message."""
+    """构建钉钉 Markdown 消息。
+    钉钉机器人仅支持 Markdown 和 Text 两种消息类型。
+    """
     strings = get_strings(report.lang)
     md = [f"# CodeSentinel Report  ", f"Repo: {report.repo}  ", ""]
 
@@ -200,13 +209,13 @@ def _build_dingtalk_payload(report: AggregatedReport) -> dict[str, Any]:
 
 
 class MultiNotifier:
-    """Delivers reports to multiple collaboration platforms."""
+    """多平台通知器：遍历启用的平台，构建对应格式的消息并通过 webhook 发送。"""
 
     def __init__(self, config: Config) -> None:
         self.config = config
 
     def notify(self, report: AggregatedReport) -> dict[str, bool]:
-        """Send report to all enabled platforms. Returns per-platform status."""
+        """向所有已启用的平台发送报告。返回各平台推送结果（True/False）。"""
         if not self.config.notify_enabled:
             return {}
 
@@ -217,6 +226,7 @@ class MultiNotifier:
             if not cfg.get("enabled", False):
                 continue
 
+            # 从环境变量读取 webhook URL
             env_key = cfg.get("webhook_url_env", "")
             webhook_url = os.getenv(env_key, "") if env_key else ""
 
@@ -224,12 +234,13 @@ class MultiNotifier:
                 results[name] = False
                 continue
 
+            # 选择对应平台的消息构建函数
             builder = {
                 "slack": _build_slack_payload,
                 "teams": _build_teams_payload,
                 "feishu": _build_feishu_payload,
                 "dingtalk": _build_dingtalk_payload,
-                "generic": _build_slack_payload,
+                "generic": _build_slack_payload,  # 通用 webhook 默认用 Slack 格式
             }.get(name, _build_slack_payload)
 
             payload = builder(report)
@@ -238,6 +249,7 @@ class MultiNotifier:
         return results
 
     def _send(self, url: str, payload: dict[str, Any]) -> bool:
+        """通过 HTTP POST 发送 webhook 消息。"""
         try:
             resp = httpx.post(url, json=payload, timeout=15)
             return resp.is_success
@@ -246,7 +258,7 @@ class MultiNotifier:
 
 
 def notify(report: AggregatedReport, config: Config | None = None) -> dict[str, bool]:
-    """Convenience function to send notifications."""
+    """便捷函数：一键发送通知到所有已配置平台。"""
     if config is None:
         from .config import load_config
         config = load_config()

@@ -1,6 +1,7 @@
 """Report aggregator — merges scanner, reviewer, and test runner results.
 
-Produces unified JSON, Markdown, and HTML reports.
+报告聚合器：将扫描、评审、测试三大模块的结果合并为统一报告。
+输出格式：JSON（结构化数据）、Markdown（消息推送）、HTML（浏览器查看）。
 """
 
 from __future__ import annotations
@@ -20,6 +21,7 @@ from .reviewer import ReviewResult
 from .test_runner import TestReport
 from .i18n import get_strings
 
+# HTML 报告模板：使用 Jinja2 渲染，支持多语言
 REPORT_HTML_TEMPLATE = """<!DOCTYPE html>
 <html lang="{{ lang }}">
 <head>
@@ -107,15 +109,17 @@ REPORT_HTML_TEMPLATE = """<!DOCTYPE html>
 
 @dataclass
 class AggregatedReport:
-    scan: dict[str, Any] | None = None
-    review: dict[str, Any] | None = None
-    tests: dict[str, Any] | None = None
-    repo: str = ""
+    """聚合报告：包含扫描、评审、测试三个模块的结果。"""
+    scan: dict[str, Any] | None = None    # 安全扫描结果
+    review: dict[str, Any] | None = None  # PR 评审结果
+    tests: dict[str, Any] | None = None   # 测试运行结果
+    repo: str = ""                         # 仓库路径
     timestamp: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
-    lang: str = "en"
+    lang: str = "en"                       # 报告语言
     errors: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
+        """转为字典（用于 JSON 序列化）。"""
         return {
             "repo": self.repo,
             "timestamp": self.timestamp,
@@ -127,17 +131,19 @@ class AggregatedReport:
         }
 
     def to_json(self, indent: int = 2) -> str:
+        """输出 JSON 格式报告。"""
         return json.dumps(self.to_dict(), ensure_ascii=False, indent=indent)
 
     def to_markdown(self) -> str:
+        """输出 Markdown 格式报告（用于消息推送和文件保存）。"""
         strings = get_strings(self.lang)
         lines = [f"# CodeSentinel Report", "",
                  f"**Repository:** `{self.repo}`  ",
                  f"**Generated:** {self.timestamp}  ",
                  ""]
 
+        # 安全扫描部分
         if self.scan:
-            # Reconstruct markdown from scan data
             findings = self.scan.get("findings", [])
             summary = self.scan.get("summary", {})
             files = self.scan.get("files_scanned", 0)
@@ -156,6 +162,7 @@ class AggregatedReport:
                     lines.append(f"  - Fix: {f.get('remediation', '')}")
                 lines.append("")
 
+        # PR 评审部分
         if self.review:
             comments = self.review.get("comments", [])
             lines.append(strings["review_header"])
@@ -170,6 +177,7 @@ class AggregatedReport:
                     lines.append(f"  - Suggestion: {c.get('suggestion', '')}")
                 lines.append("")
 
+        # 测试结果部分
         if self.tests:
             lines.append(strings["test_header"])
             lines.append("")
@@ -186,6 +194,7 @@ class AggregatedReport:
         return "\n".join(lines)
 
     def to_html(self) -> str:
+        """输出 HTML 格式报告（浏览器查看）。"""
         strings = get_strings(self.lang)
         template = Template(REPORT_HTML_TEMPLATE)
         return template.render(
@@ -206,7 +215,7 @@ def aggregate(
     repo: str = "",
     lang: str = "en",
 ) -> AggregatedReport:
-    """Merge all results into a unified report."""
+    """合并所有模块结果为统一报告。"""
     return AggregatedReport(
         scan=scan.to_dict() if scan else None,
         review=review.to_dict() if review else None,
@@ -217,7 +226,9 @@ def aggregate(
 
 
 def save_report(report: AggregatedReport, output_dir: str, formats: list[str] | None = None) -> list[str]:
-    """Save the report to disk in specified formats. Returns list of saved paths."""
+    """将报告保存到磁盘（支持 JSON / Markdown / HTML 格式）。
+    返回已保存的文件路径列表。
+    """
     if formats is None:
         formats = ["json", "markdown", "html"]
 
