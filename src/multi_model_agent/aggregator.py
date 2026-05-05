@@ -24,7 +24,7 @@ REPORT_HTML_TEMPLATE = """<!DOCTYPE html>
 <html lang="{{ lang }}">
 <head>
     <meta charset="utf-8">
-    <title>Multi-Model Agent Report — {{ timestamp }}</title>
+    <title>CodeSentinel Report — {{ timestamp }}</title>
     <style>
         body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif; max-width: 960px; margin: 0 auto; padding: 2em; background: #fff; color: #1a1a1a; }
         h1 { border-bottom: 2px solid #e5e5e5; padding-bottom: .5em; }
@@ -47,7 +47,7 @@ REPORT_HTML_TEMPLATE = """<!DOCTYPE html>
     </style>
 </head>
 <body>
-    <h1>Multi-Model Agent Report</h1>
+    <h1>CodeSentinel Report</h1>
     <p>Generated: {{ timestamp }}</p>
     <p>Repo: {{ repo }}</p>
 
@@ -131,7 +131,7 @@ class AggregatedReport:
 
     def to_markdown(self) -> str:
         strings = get_strings(self.lang)
-        lines = [f"# Multi-Model Agent Report", "",
+        lines = [f"# CodeSentinel Report", "",
                  f"**Repository:** `{self.repo}`  ",
                  f"**Generated:** {self.timestamp}  ",
                  ""]

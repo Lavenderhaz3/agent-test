@@ -23,7 +23,7 @@ def _build_slack_payload(report: AggregatedReport) -> dict[str, Any]:
     blocks: list[dict] = [
         {
             "type": "header",
-            "text": {"type": "plain_text", "text": f"Multi-Model Agent Report"},
+            "text": {"type": "plain_text", "text": f"CodeSentinel Report"},
         },
         {
             "type": "context",
@@ -134,7 +134,7 @@ def _build_teams_payload(report: AggregatedReport) -> dict[str, Any]:
                     "type": "AdaptiveCard",
                     "version": "1.4",
                     "body": [
-                        {"type": "TextBlock", "text": "Multi-Model Agent Report", "weight": "bolder", "size": "large"},
+                        {"type": "TextBlock", "text": "CodeSentinel Report", "weight": "bolder", "size": "large"},
                         {"type": "TextBlock", "text": f"Repo: {report.repo}", "isSubtle": True},
                         {"type": "FactSet", "facts": facts},
                     ],
@@ -170,7 +170,7 @@ def _build_feishu_payload(report: AggregatedReport) -> dict[str, Any]:
         "msg_type": "interactive",
         "card": {
             "header": {
-                "title": {"tag": "plain_text", "content": "Multi-Model Agent Report"},
+                "title": {"tag": "plain_text", "content": "CodeSentinel Report"},
             },
             "elements": elements,
         },
@@ -180,7 +180,7 @@ def _build_feishu_payload(report: AggregatedReport) -> dict[str, Any]:
 def _build_dingtalk_payload(report: AggregatedReport) -> dict[str, Any]:
     """Build a DingTalk markdown message."""
     strings = get_strings(report.lang)
-    md = [f"# Multi-Model Agent Report  ", f"Repo: {report.repo}  ", ""]
+    md = [f"# CodeSentinel Report  ", f"Repo: {report.repo}  ", ""]
 
     if report.scan:
         s = report.scan.get("summary", {})
@@ -195,7 +195,7 @@ def _build_dingtalk_payload(report: AggregatedReport) -> dict[str, Any]:
 
     return {
         "msgtype": "markdown",
-        "markdown": {"title": "Multi-Model Agent Report", "text": "\n".join(md)},
+        "markdown": {"title": "CodeSentinel Report", "text": "\n".join(md)},
     }
 
 

@@ -97,7 +97,7 @@ def test_aggregated_report_json():
 def test_aggregated_report_markdown():
     r = aggregate(repo="/test/repo")
     md = r.to_markdown()
-    assert "Multi-Model Agent Report" in md
+    assert "CodeSentinel Report" in md
 
 
 def test_slack_payload():
