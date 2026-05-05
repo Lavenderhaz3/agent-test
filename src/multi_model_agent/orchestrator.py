@@ -156,7 +156,7 @@ class Orchestrator:
         if not lang:
             lang = self.config.notify_default_lang
 
-        console.print(f"[bold blue]Multi-Model Agent[/] — analyzing [cyan]{repo_abs}[/]")
+        console.print(f"[bold blue]CodeSentinel[/] — analyzing [cyan]{repo_abs}[/]")
         console.print(f"Language: {lang}\n")
 
         scan_result: ScanResult | None = None

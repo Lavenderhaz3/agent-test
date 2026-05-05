@@ -3,12 +3,12 @@ requires = ["setuptools>=68.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "multi-model-agent"
+name = "codesentinel"
 version = "1.0.0"
-description = "Multi-model collaborative agent for automated code review and documentation generation"
+description = "基于 OpenClaw + Claude + GPT 的多模型协作代码审查与安全保障智能体"
 requires-python = ">=3.9"
 license = {text = "MIT"}
-authors = [{name = "Multi Model Agent Team"}]
+authors = [{name = "CodeSentinel Team"}]
 dependencies = [
     "anthropic>=0.18.0",
     "openai>=1.0.0",
@@ -20,7 +20,7 @@ dependencies = [
 ]
 
 [project.scripts]
-multi-model-agent = "multi_model_agent.cli:main"
+codesentinel = "multi_model_agent.cli:main"
 
 [project.optional-dependencies]
 dev = ["pytest>=8.0", "pytest-asyncio>=0.24", "ruff>=0.8"]

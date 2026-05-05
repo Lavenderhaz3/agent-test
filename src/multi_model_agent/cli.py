@@ -1,4 +1,4 @@
-"""CLI entry point for the multi-model agent.
+"""CLI entry point for CodeSentinel.
 
 Commands:
     run      Full workflow (scan + review + test + notify)
@@ -25,12 +25,12 @@ from .test_runner import run_tests
 
 
 @click.group()
-@click.version_option(version="1.0.0", prog_name="multi-model-agent")
+@click.version_option(version="1.0.0", prog_name="codesentinel")
 def main() -> None:
-    """Multi-Model Collaborative Agent for automated code review and documentation generation.
+    """CodeSentinel — 基于 OpenClaw + Claude + GPT 的多模型协作代码审查智能体。
 
-    Orchestrates Claude (vulnerability scanning), GPT (PR review),
-    and OpenClaw (test execution) into a unified workflow.
+    Claude 负责漏洞扫描，GPT 负责 PR 评审与优化建议，
+    OpenClaw 驱动测试执行，结果聚合推送至团队协作工具。
     """
     pass
 
